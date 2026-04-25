@@ -1,12 +1,13 @@
 use crate::instance::Instance;
 use std::io::{BufRead, BufReader};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct ActiveWindowChangedEvent<'a> {
     pub class: &'a str,
-    pub title: &'a str,
+    pub _title: &'a str,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct ActiveWindowChangedEventListener<F: Fn(ActiveWindowChangedEvent) + 'static>(pub F);
 
 impl<F: Fn(ActiveWindowChangedEvent) + 'static> ActiveWindowChangedEventListener<F> {
@@ -26,7 +27,7 @@ impl<F: Fn(ActiveWindowChangedEvent) + 'static> ActiveWindowChangedEventListener
 
             if let Some(stripped) = line.strip_prefix("activewindow>>") {
                 let (class, title) = stripped.split_once(',').unwrap();
-                self.0(ActiveWindowChangedEvent { class, title });
+                self.0(ActiveWindowChangedEvent { class, _title: title });
             }
         }
     }

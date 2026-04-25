@@ -26,11 +26,11 @@ fn main() {
         }
         if should_bind_be_set {
             is_bind_set.set(true);
-            i2.set("bind", format!("{modifiers},{key},{action}"));
+            i2.set("bind", &format!("{modifiers},{key},{action}"));
             println!("keyword bind {modifiers}, {key}, {action}");
         } else {
             is_bind_set.set(false);
-            i2.set("unbind", format!("{modifiers},{key}"));
+            i2.set("unbind", &format!("{modifiers},{key}"));
             println!("keyword unbind {modifiers}, {key}");
         }
     })
