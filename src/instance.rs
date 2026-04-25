@@ -1,4 +1,3 @@
-use hyprland::shared::{CommandContent, CommandFlag};
 use std::{
     io::{Read, Write},
     os::unix::net::UnixStream,
@@ -9,24 +8,21 @@ use std::{
 /// It holds the event streams connected to the sockets of one running Hyprland instance.
 #[derive(Debug, Clone)]
 pub struct Instance {
-    instance: String,
     /// .socket.sock
     stream: Box<Path>,
+    /// .socket2.sock
     event_socket_path: Box<Path>,
 }
 
 impl Instance {
     /// This function sets a keyword's value
     pub fn set(&self, key: &str, value: String) {
-        self.write_to_socket(CommandContent {
-            flag: CommandFlag::Empty,
-            data: format!("keyword {key} {value}"),
-        })
+        self.write_to_socket(format!("keyword {key} {value}"))
     }
 
-    fn write_to_socket(&self, content: CommandContent) {
+    fn write_to_socket(&self, content: String) {
         let mut stream = UnixStream::connect(&self.stream).unwrap();
-        stream.write_all(&content.as_bytes()).unwrap();
+        stream.write_all(content.as_bytes()).unwrap();
         let mut response = Vec::new();
         stream.read_to_end(&mut response).unwrap();
     }
@@ -66,16 +62,16 @@ impl Instance {
     ///
     /// Example path: `/run/user/1000/hypr/9958d297641b5c84dcff93f9039d80a5ad37ab00_1752788564_21468021`
     pub fn from_base_socket_path(path: PathBuf) -> Self {
-        let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
-            panic!("Could not get instance name from path: {}", path.display());
-        };
         if !path.exists() {
             panic!("Hyprland instance path does not exist: {}", path.display());
         }
         Self {
-            instance: name,
             stream: path.join(".socket.sock").into_boxed_path(),
             event_socket_path: path.join(".socket2.sock").into_boxed_path(),
         }
+    }
+
+    pub fn get_event_stream(&self) -> UnixStream {
+        UnixStream::connect(&self.event_socket_path).unwrap()
     }
 }

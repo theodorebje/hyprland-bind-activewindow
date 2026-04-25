@@ -1,7 +1,8 @@
+mod event;
 mod instance;
 
-use crate::instance::Instance;
-use hyprland::event_listener::EventListener;
+use crate::{event::ActiveWindowChangedEventListener, instance::Instance};
+use std::cell::Cell;
 
 // kitty, SUPER, q, exec, uwsm app -- kitty
 fn main() {
@@ -13,18 +14,25 @@ fn main() {
 
     dbg!(class, modifiers, key, action);
 
+    let is_bind_set = Cell::new(false);
+
     let instance = Instance::new();
-    let mut listener = EventListener::new();
-    listener.add_active_window_changed_handler(move |wevent| {
-        if let Some(wevent) = wevent {
-            if wevent.class == class {
-                instance.set("unbind", format!("{modifiers},{key}"));
-                println!("keyword unbind {modifiers}, {key}");
-            } else {
-                instance.set("bind", format!("{modifiers},{key},{action}"));
-                println!("keyword bind {modifiers}, {key}, {action}");
-            }
+    let i2 = instance.clone();
+
+    ActiveWindowChangedEventListener(move |wevent| {
+        let should_bind_be_set = wevent.class != class;
+        if should_bind_be_set == is_bind_set.get() {
+            return;
         }
-    });
-    listener.start_listener().unwrap();
+        if should_bind_be_set {
+            is_bind_set.set(true);
+            i2.set("bind", format!("{modifiers},{key},{action}"));
+            println!("keyword bind {modifiers}, {key}, {action}");
+        } else {
+            is_bind_set.set(false);
+            i2.set("unbind", format!("{modifiers},{key}"));
+            println!("keyword unbind {modifiers}, {key}");
+        }
+    })
+    .start(&instance);
 }
