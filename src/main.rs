@@ -1,4 +1,7 @@
-use hyprland::{event_listener::EventListener, keyword::Keyword};
+mod instance;
+
+use crate::instance::Instance;
+use hyprland::event_listener::EventListener;
 
 // kitty, SUPER, q, exec, uwsm app -- kitty
 fn main() {
@@ -10,16 +13,15 @@ fn main() {
 
     dbg!(class, modifiers, key, action);
 
-    let instance = hyprland::default_instance_panic();
+    let instance = Instance::new();
     let mut listener = EventListener::new();
     listener.add_active_window_changed_handler(move |wevent| {
         if let Some(wevent) = wevent {
             if wevent.class == class {
-                Keyword::instance_set(instance, "unbind", format!("{modifiers},{key}")).unwrap();
+                instance.set("unbind", format!("{modifiers},{key}"));
                 println!("keyword unbind {modifiers}, {key}");
             } else {
-                Keyword::instance_set(instance, "bind", format!("{modifiers},{key},{action}"))
-                    .unwrap();
+                instance.set("bind", format!("{modifiers},{key},{action}"));
                 println!("keyword bind {modifiers}, {key}, {action}");
             }
         }
