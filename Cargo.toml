@@ -1,0 +1,18 @@
+[package]
+name = "hyprland-bind-activewindow"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hyprland = { git = "ssh://git@github.com/hyprland-community/hyprland-rs.git", default-features = false, features = [
+    "listener",
+    "config",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
