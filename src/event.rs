@@ -1,5 +1,5 @@
-use crate::instance::Instance;
-use std::io::{BufRead, BufReader};
+use crate::{bufreader::BufReader, instance::Instance};
+use alloc::string::String;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ActiveWindowChangedEvent<'a> {
