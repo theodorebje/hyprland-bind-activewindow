@@ -1,5 +1,5 @@
 #![allow(internal_features)]
-#![feature(lang_items, core_intrinsics, c_size_t)]
+#![feature(core_intrinsics, c_size_t)]
 #![no_std]
 #![no_main]
 mod bufstream;
@@ -17,9 +17,11 @@ use core::{
 };
 use crate::libasm::print;
 
-static mut ARGS_BUF: Buf<512> = Buf::new();
+const DEBUG_OUT_SIZE: usize = 256;
+const ARGS_BUF_SIZE: usize = 256;
 const EVENT_BUFFER_SIZE: usize = 256; // arbitrary
 const SUN_PATH_SIZE: usize = 108; // size of sockaddr_un.sun_path
+static mut ARGS_BUF: Buf<ARGS_BUF_SIZE> = Buf::new();
 
 struct Buf<const N: usize> {
     data: [u8; N],
@@ -93,7 +95,7 @@ fn main(
             return;
         }
 
-        let mut buf = Buf::<128>::new();
+        let mut buf = Buf::<DEBUG_OUT_SIZE>::new();
         if should_bind_be_set {
             is_bind_set.set(true);
             write!(buf, "{modifiers},{key},{action}").ok();
@@ -128,8 +130,6 @@ unsafe extern "C" fn _start() -> ! {
     );
 }
 
-#[lang = "eh_personality"]
-const fn rust_eh_personality() {}
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
     let mut buf = Buf::<256>::new();

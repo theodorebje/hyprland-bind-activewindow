@@ -14,7 +14,17 @@ const AF_UNIX_INT: c_int = AF_UNIX as c_int;
 
 mod syscall {
     use crate::{SUN_PATH_SIZE, libasm::AF_UNIX, unixstream::SocketPath};
-    use core::ffi::{c_char, c_int, c_size_t, c_ssize_t, c_uint, c_ushort, c_void};
+    use core::{
+        arch::asm,
+        ffi::{c_char, c_int, c_size_t, c_ssize_t, c_uint, c_ushort, c_void},
+    };
+
+    const SYS_SOCKET: c_int = 41;
+    const SYS_CONNECT: c_int = 42;
+    const SYS_CLOSE: c_int = 3;
+    const SYS_READ: c_int = 0;
+    const SYS_WRITE: c_int = 1;
+    const SYS_EXIT: c_int = 60;
 
     #[allow(non_camel_case_types)]
     pub type socklen_t = c_uint;
@@ -58,14 +68,103 @@ mod syscall {
         }
     }
 
-    #[link(name = "c")]
-    unsafe extern "C" {
-        pub fn close(fd: c_int) -> c_int;
-        pub fn exit(status: c_int) -> !;
-        pub fn connect(socket: c_int, address: *const sockaddr, len: socklen_t) -> c_int;
-        pub fn read(fd: c_int, buf: *mut c_void, count: c_size_t) -> c_ssize_t;
-        pub fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
-        pub fn write(fd: c_int, buf: *const c_void, count: c_size_t) -> c_ssize_t;
+    pub unsafe fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int {
+        let ret: c_int;
+        unsafe {
+            asm!(
+                "syscall",
+                in("rax") SYS_SOCKET,
+                in("rdi") domain,
+                in("rsi") ty,
+                in("rdx") protocol,
+                lateout("rcx") _,   // clobbered by syscall
+                lateout("r11") _,   // clobbered by syscall
+                lateout("rax") ret,
+                options(nostack, preserves_flags)
+            );
+        };
+        ret
+    }
+
+    pub unsafe fn connect(socket: c_int, address: *const sockaddr, len: socklen_t) -> c_int {
+        let ret: c_int;
+        unsafe {
+            asm!(
+                "syscall",
+                in("rax") SYS_CONNECT,
+                in("rdi") socket,
+                in("rsi") address,
+                in("rdx") len,
+                lateout("rcx") _,
+                lateout("r11") _,
+                lateout("rax") ret,
+                options(nostack, preserves_flags)
+            );
+        };
+        ret
+    }
+
+    pub unsafe fn read(fd: c_int, buf: *mut c_void, count: c_size_t) -> c_ssize_t {
+        let ret: c_ssize_t;
+        unsafe {
+            asm!(
+                "syscall",
+                in("rax") SYS_READ,
+                in("rdi") fd,
+                in("rsi") buf,
+                in("rdx") count,
+                lateout("rcx") _,
+                lateout("r11") _,
+                lateout("rax") ret,
+                options(nostack, preserves_flags)
+            );
+        };
+        ret
+    }
+
+    pub unsafe fn write(fd: c_int, buf: *const c_void, count: c_size_t) -> c_ssize_t {
+        let ret: c_ssize_t;
+        unsafe {
+            asm!(
+                "syscall",
+                in("rax") SYS_WRITE,
+                in("rdi") fd,
+                in("rsi") buf,
+                in("rdx") count,
+                lateout("rcx") _,
+                lateout("r11") _,
+                lateout("rax") ret,
+                options(nostack, preserves_flags)
+            );
+        };
+        ret
+    }
+
+    pub unsafe fn close(fd: c_int) -> c_int {
+        let ret: c_int;
+        unsafe {
+            asm!(
+                "syscall",
+                in("rax") SYS_CLOSE,
+                in("rdi") fd,
+                lateout("rcx") _,
+                lateout("r11") _,
+                lateout("rax") ret,
+                options(nostack, preserves_flags)
+            );
+        };
+        ret
+    }
+
+    pub unsafe fn exit(status: c_int) -> ! {
+        unsafe {
+            asm!(
+                "syscall",
+                in("rax") SYS_EXIT,
+                in("rdi") status,
+                options(noreturn, nostack)
+            )
+        };
     }
 }
 
@@ -124,28 +223,24 @@ fn connect(fd: c_int, addr: &sockaddr_un, path_len: c_size_t) -> Result<c_int, c
     let addr_ptr = core::ptr::from_ref::<sockaddr_un>(addr).cast::<sockaddr>();
 
     let addr_len =
-        socklen_t::try_from(core::mem::offset_of!(sockaddr_un, sun_path) + path_len + 1)
-            .unwrap();
+        socklen_t::try_from(core::mem::offset_of!(sockaddr_un, sun_path) + path_len + 1).unwrap();
 
     let ret = unsafe { syscall::connect(fd, addr_ptr, addr_len) };
-    if ret < 0 {
-        close(fd)?;
-        return Err(ret);
-    }
-    Ok(ret)
+
+    if ret < 0 { Err(ret) } else { Ok(ret) }
 }
 
 pub fn connect_to_socket(path: SocketPath) -> Result<c_int, c_int> {
     let fd = create_unix_socket()?;
     let Some((addr, path_len)) = sockaddr_un::new(path) else {
-        close(fd)?;
+        let _ = close(fd);
         return Err(EINVAL);
     };
 
     match connect(fd, &addr, path_len) {
         Ok(_) => Ok(fd),
         Err(err) => {
-            close(fd)?;
+            let _ = close(fd);
             Err(err)
         }
     }
