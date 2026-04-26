@@ -2,9 +2,9 @@ use crate::{
     libasm::syscall::{sockaddr, sockaddr_un, socklen_t},
     unixstream::SocketPath,
 };
-use core::ffi::{c_int, c_size_t, c_ushort, c_void};
+use core::ffi::{c_int, c_size_t, c_uchar, c_ushort, c_void};
 
-pub const EINVAL: c_int = -22;
+const EINVAL: c_int = -22;
 pub const EPIPE: c_int = -32;
 const STDOUT_FILENO: c_int = 1;
 const AUTOMATIC_PROTOCOL: c_int = 0;
@@ -43,17 +43,13 @@ mod syscall {
         pub sun_path: SocketPath,
     }
 
-    fn socket_path_len(path: SocketPath) -> usize {
+    fn socket_path_len(path: &SocketPath) -> usize {
         path.0.iter().position(|&c| c == 0).unwrap_or(SUN_PATH_SIZE)
     }
 
     impl sockaddr_un {
         pub fn new(path: SocketPath) -> Option<(Self, c_size_t)> {
-            // Find the length of the null‑terminated string inside sun_path
-            // SAFETY: The user guarantees that `path.0` contains a valid null‑terminated C string
-            //         of length at most 107 (leaving room for the null terminator).
-            let path_len = socket_path_len(path);
-            // Ensure the path is not longer than the buffer (should never happen with correct input)
+            let path_len = socket_path_len(&path);
             if path_len >= path.0.len() {
                 return None;
             }
@@ -77,8 +73,8 @@ mod syscall {
                 in("rdi") domain,
                 in("rsi") ty,
                 in("rdx") protocol,
-                lateout("rcx") _,   // clobbered by syscall
-                lateout("r11") _,   // clobbered by syscall
+                lateout("rcx") _,
+                lateout("r11") _,
                 lateout("rax") ret,
                 options(nostack, preserves_flags)
             );
@@ -172,14 +168,10 @@ pub fn exit(status: c_int) -> ! {
     unsafe { syscall::exit(status) }
 }
 
-pub fn create_unix_socket() -> Result<c_int, c_int> {
+fn create_unix_socket() -> Result<c_int, c_int> {
     let ret = unsafe { syscall::socket(AF_UNIX_INT, SOCK_STREAM, AUTOMATIC_PROTOCOL) };
 
-    if ret < 0 {
-        Err(ret) // syscall returns errno
-    } else {
-        Ok(ret)
-    }
+    if ret < 0 { Err(ret) } else { Ok(ret) }
 }
 
 pub fn close(fd: c_int) -> Result<c_int, c_int> {
@@ -198,7 +190,7 @@ fn write(fd: c_int, buf: *const c_void, count: c_size_t) -> Result<c_size_t, c_i
     }
 }
 
-pub fn write_str(fd: c_int, msg: &str) -> Result<c_size_t, c_int> {
+fn write_str(fd: c_int, msg: &str) -> Result<c_size_t, c_int> {
     write(fd, msg.as_ptr().cast::<c_void>(), msg.len())
 }
 
@@ -210,7 +202,7 @@ pub fn print(msg: &str) {
     write_str(STDOUT_FILENO, msg).expect("todo");
 }
 
-pub fn read(fd: c_int, buf: &mut [u8]) -> Result<c_size_t, c_int> {
+pub fn read(fd: c_int, buf: &mut [c_uchar]) -> Result<c_size_t, c_int> {
     let ret = unsafe { syscall::read(fd, buf.as_mut_ptr().cast::<c_void>(), buf.len()) };
     if ret < 0 {
         Err(c_int::try_from(ret).unwrap())

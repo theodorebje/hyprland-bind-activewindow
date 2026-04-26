@@ -17,22 +17,17 @@ impl BufStream {
         }
     }
 
-    /// Read one line (including newline) and return it without the newline.
-    /// Returns `None` on EOF.
     pub fn read_line(&mut self) -> Option<&[u8]> {
         loop {
-            // Scan for newline in the current buffer
             for i in self.read_pos..self.write_pos {
                 if self.buffer[i] == b'\n' {
                     let line = &self.buffer[self.read_pos..i];
-                    self.read_pos = i + 1; // consume the newline
+                    self.read_pos = i + 1;
                     return Some(line);
                 }
             }
 
-            // No newline found – need more data
             if self.read_pos > 0 {
-                // Move remaining data to front of buffer
                 let remaining = self.write_pos - self.read_pos;
                 if remaining > 0 {
                     self.buffer.copy_within(self.read_pos..self.write_pos, 0);
@@ -41,17 +36,14 @@ impl BufStream {
                 self.read_pos = 0;
             }
 
-            // If buffer is full and still no newline, the line is too long.
             if self.write_pos == self.buffer.len() {
-                // Handle error: line exceeds buffer size
-                self.write_pos = 0; // discard and continue? better to panic or return error
+                self.write_pos = 0;
                 panic!("line too long");
             }
 
-            // Read more data into the free space
             let chunk = &mut self.buffer[self.write_pos..];
             match self.stream.read(chunk).unwrap() {
-                0 => return None, // EOF
+                0 => return None,
                 n => self.write_pos += n,
             }
         }

@@ -4,7 +4,7 @@ use core::str;
 #[derive(Debug, Clone, Copy)]
 pub struct ActiveWindowChangedEvent<'a> {
     pub class: &'a str,
-    pub _title: &'a str,
+    _title: &'a str,
 }
 
 #[derive(Debug, Clone, Copy)]
