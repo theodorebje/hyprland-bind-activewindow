@@ -9,6 +9,7 @@ mod instance;
 mod libasm;
 mod unixstream;
 
+use crate::libasm::print;
 use crate::{buf::Buf, event::ActiveWindowChangedEventListener, instance::Instance, libasm::exit};
 use core::{
     cell::Cell,
@@ -16,7 +17,6 @@ use core::{
     fmt::Write,
     panic::PanicInfo,
 };
-use crate::libasm::print;
 
 const DEBUG_OUT_SIZE: usize = 256;
 const ARGS_BUF_SIZE: usize = 256;
@@ -24,11 +24,7 @@ const EVENT_BUFFER_SIZE: usize = 256;
 const SUN_PATH_SIZE: usize = 108;
 static mut ARGS_BUF: Buf<ARGS_BUF_SIZE> = Buf::new();
 
-fn main(
-    argc: usize,
-    argv: *const *const c_char,
-    envp: *const *const c_char,
-) -> c_int {
+fn main(argc: usize, argv: *const *const c_char, envp: *const *const c_char) -> c_int {
     let rest: &'static str = unsafe {
         let buf = &mut *core::ptr::addr_of_mut!(ARGS_BUF);
         buf.clear();
@@ -47,15 +43,22 @@ fn main(
         buf.as_str()
     };
 
-    let (class, rest): (&'static str, &'static str) = rest.split_once(", ").unwrap();
-    let (modifiers, rest): (&'static str, &'static str) = rest.split_once(", ").unwrap();
-    let (key, action): (&'static str, &'static str) = rest.split_once(", ").unwrap();
+    let (negate, rest): (bool, &'static str) = rest
+        .strip_prefix("not:")
+        .map_or((false, rest), |rest| (true, rest));
+    assert!(!rest.is_empty(), "no class provided");
+    let (class, rest): (&'static str, &'static str) =
+        rest.split_once(", ").expect("no modifiers provided");
+    let (modifiers, rest): (&'static str, &'static str) =
+        rest.split_once(", ").expect("no key provided");
+    let (key, action): (&'static str, &'static str) =
+        rest.split_once(", ").expect("no action provided");
 
     let is_bind_set = Cell::new(false);
     let instance = Instance::new(envp);
 
     ActiveWindowChangedEventListener(move |wevent| {
-        let should_bind_be_set = wevent.class != class;
+        let should_bind_be_set = (wevent.class != class) ^ negate;
         if should_bind_be_set == is_bind_set.get() {
             return;
         }
