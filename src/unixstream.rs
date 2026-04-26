@@ -1,7 +1,7 @@
-use alloc::vec::Vec;
+use crate::SUN_PATH_SIZE;
 use core::{
     ffi::{c_int, c_void},
-    mem::{MaybeUninit, offset_of},
+    mem::MaybeUninit,
 };
 use libc::{SOCK_STREAM, sockaddr_un};
 
@@ -10,6 +10,15 @@ const AF_UNIX: libc::sa_family_t = libc::AF_UNIX as libc::sa_family_t;
 
 pub struct UnixStream {
     fd: c_int,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SocketPath(pub [i8; SUN_PATH_SIZE]);
+
+impl SocketPath {
+    pub const fn new() -> Self {
+        Self([0; 108])
+    }
 }
 
 impl UnixStream {
@@ -31,7 +40,7 @@ impl UnixStream {
     }
 
     /// Write `buf` to the stream. Returns number of bytes written or error.
-    pub fn write(&self, buf: &[u8]) -> Result<usize, i32> {
+    pub fn write(&self, buf: &[i8]) -> Result<usize, i32> {
         let ret = unsafe { libc::write(self.fd, buf.as_ptr().cast::<c_void>(), buf.len()) };
         if ret < 0 {
             Err(unsafe { *libc::__errno_location() })
@@ -44,7 +53,7 @@ impl UnixStream {
     ///
     /// # Errors
     /// Returns `Err(errno)` if socket creation or connection fails.
-    pub fn connect(path: &str) -> Result<Self, i32> {
+    pub fn connect(path: SocketPath) -> Result<Self, i32> {
         // Create socket
         let fd = unsafe { libc::socket(i32::from(AF_UNIX), SOCK_STREAM, 0) };
         if fd < 0 {
@@ -55,28 +64,27 @@ impl UnixStream {
         let mut addr: sockaddr_un = unsafe { MaybeUninit::zeroed().assume_init() };
         addr.sun_family = AF_UNIX;
 
-        // Copy path bytes into sun_path (null-terminated).
-        // sun_path is usually 108 bytes long (varies by system). Truncate if too long.
-        let bytes = path.as_bytes();
-        let len = bytes.len().min(addr.sun_path.len() - 1);
-        // Cast the sun_path to a mutable u8 slice
-        let sun_path_u8 = unsafe {
-            core::slice::from_raw_parts_mut(
-                addr.sun_path.as_mut_ptr().cast::<u8>(),
-                addr.sun_path.len(),
-            )
-        };
-        sun_path_u8[..len].copy_from_slice(&bytes[..len]);
-        sun_path_u8[len] = 0;
+        // Copy the entire SocketPath array (already null‑terminated, user must ensure)
+        addr.sun_path = path.0;
+
+        // Find the length of the null‑terminated string inside sun_path
+        // SAFETY: The user guarantees that `path.0` contains a valid null‑terminated C string
+        //         of length at most 107 (leaving room for the null terminator).
+        let path_len = unsafe { libc::strlen(addr.sun_path.as_ptr()) };
+        // Ensure the path is not longer than the buffer (should never happen with correct input)
+        if path_len >= addr.sun_path.len() {
+            unsafe { libc::close(fd) };
+            return Err(libc::EINVAL); // Or any appropriate error
+        }
 
         let addr_ptr = (&raw const addr).cast::<libc::sockaddr>();
         let addr_len =
-            libc::socklen_t::try_from(offset_of!(sockaddr_un, sun_path) + len + 1).unwrap();
+            libc::socklen_t::try_from(core::mem::offset_of!(sockaddr_un, sun_path) + path_len + 1)
+                .unwrap();
 
         let ret = unsafe { libc::connect(fd, addr_ptr, addr_len) };
         if ret < 0 {
             let err = unsafe { *libc::__errno_location() };
-            // close the socket fd before returning the error
             unsafe { libc::close(fd) };
             return Err(err);
         }
@@ -84,7 +92,7 @@ impl UnixStream {
         Ok(Self::from_raw_fd(fd))
     }
 
-    pub fn write_all(&self, mut buf: &[u8]) -> Result<(), i32> {
+    pub fn write_all(&self, mut buf: &[i8]) -> Result<(), i32> {
         while !buf.is_empty() {
             match self.write(buf) {
                 Ok(0) => return Err(libc::EPIPE), // EOF unexpectedly
@@ -93,22 +101,6 @@ impl UnixStream {
             }
         }
         Ok(())
-    }
-
-    pub fn read_to_end(&self, buf: &mut Vec<u8>) -> Result<usize, i32> {
-        let mut total = 0;
-        let mut tmp = [0u8; 2048]; // stack buffer
-        loop {
-            match self.read(&mut tmp) {
-                Ok(0) => break, // EOF
-                Ok(n) => {
-                    buf.extend_from_slice(&tmp[..n]);
-                    total += n;
-                }
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(total)
     }
 }
 

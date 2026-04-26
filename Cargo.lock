@@ -3,19 +3,9 @@
 version = 4
 
 [[package]]
-name = "emballoc"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f1cdcc6ee777565b5b04209526974a213a8f97879bdb314572265db86e3c63f"
-dependencies = [
- "spin",
-]
-
-[[package]]
 name = "hyprland-bind-activewindow"
 version = "0.1.0"
 dependencies = [
- "emballoc",
  "libc",
 ]
 
@@ -24,9 +14,3 @@ name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
-
-[[package]]
-name = "spin"
-version = "0.9.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
