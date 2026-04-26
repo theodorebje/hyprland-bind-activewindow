@@ -1,47 +1,25 @@
 #![allow(internal_features)]
-#![feature(lang_items, core_intrinsics)]
+#![feature(lang_items, core_intrinsics, c_size_t)]
 #![no_std]
 #![no_main]
+mod bufstream;
 mod event;
 mod instance;
+mod libasm;
 mod unixstream;
 
-extern crate libc;
-
-use crate::{event::ActiveWindowChangedEventListener, instance::Instance};
+use crate::{event::ActiveWindowChangedEventListener, instance::Instance, libasm::exit};
 use core::{
     cell::Cell,
-    ffi::{CStr, c_char, c_int, c_void},
+    ffi::{CStr, c_char, c_int},
     fmt::Write,
     panic::PanicInfo,
 };
+use crate::libasm::print;
 
 static mut ARGS_BUF: Buf<512> = Buf::new();
 const EVENT_BUFFER_SIZE: usize = 256; // arbitrary
-const ENV_KEY_SIZE: usize = 64; // $HYPRLAND_INSTANCE_SIGNATURE is 63 bytes + null terminator
 const SUN_PATH_SIZE: usize = 108; // size of sockaddr_un.sun_path
-
-#[link(name = "c")]
-unsafe extern "C" {}
-
-#[link(name = "gcc_s")]
-unsafe extern "C" {}
-
-unsafe extern "C" {
-    fn write(fd: i32, buf: *const c_void, count: usize) -> isize;
-}
-
-fn __write(fd: i32, msg: &str) {
-    let n = unsafe { write(fd, msg.as_ptr().cast::<c_void>(), msg.len()) };
-
-    if n < 0 {
-        unsafe { libc::exit(7) }; // We don't want to have to return from every function
-    }
-}
-
-fn print(msg: &str) {
-    __write(1, msg);
-}
 
 struct Buf<const N: usize> {
     data: [u8; N],
@@ -79,8 +57,11 @@ impl<const N: usize> Write for Buf<N> {
 }
 
 // kitty, SUPER, q, exec, uwsm app -- kitty
-#[unsafe(no_mangle)]
-unsafe extern "C" fn main(argc: usize, argv: *const *const c_char) -> c_int {
+fn main(
+    argc: usize,
+    argv: *const *const c_char,
+    envp: *const *const c_char,
+) -> c_int {
     // Build the joined argv string into the static buffer.
     let rest: &'static str = unsafe {
         let buf = &mut *core::ptr::addr_of_mut!(ARGS_BUF);
@@ -104,7 +85,7 @@ unsafe extern "C" fn main(argc: usize, argv: *const *const c_char) -> c_int {
     let (key, action): (&'static str, &'static str) = rest.split_once(", ").unwrap();
 
     let is_bind_set = Cell::new(false);
-    let instance = Instance::new();
+    let instance = Instance::new(envp);
 
     ActiveWindowChangedEventListener(move |wevent| {
         let should_bind_be_set = wevent.class != class;
@@ -130,7 +111,21 @@ unsafe extern "C" fn main(argc: usize, argv: *const *const c_char) -> c_int {
     })
     .start(&instance);
 
-    0
+    exit(0)
+}
+
+#[unsafe(no_mangle)]
+#[unsafe(naked)]
+unsafe extern "C" fn _start() -> ! {
+    core::arch::naked_asm!(
+        "mov rax, rsp",
+        "mov rdi, [rax]",
+        "lea rsi, [rax + 8]",
+        "lea rdx, [rsi + rdi * 8 + 8]",
+        "sub rsp, 8",
+        "jmp {runtime_entry}",
+        runtime_entry = sym main,
+    );
 }
 
 #[lang = "eh_personality"]

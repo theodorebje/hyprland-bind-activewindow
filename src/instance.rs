@@ -1,16 +1,15 @@
 use crate::{
-    ENV_KEY_SIZE,
     unixstream::{SocketPath, UnixStream},
 };
-use core::ffi::CStr;
+use core::ffi::{CStr, c_char};
 
-struct StackBuf {
-    data: SocketPath,
-    len: usize,
+pub struct StackBuf {
+    pub data: SocketPath,
+    pub len: usize,
 }
 
 impl StackBuf {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             data: SocketPath::new(),
             len: 0,
@@ -18,7 +17,7 @@ impl StackBuf {
     }
 
     /// Safely push a slice of `u8` bytes (e.g. from `&str`) onto the buffer.
-    fn push(&mut self, s: &[u8]) {
+    pub fn push(&mut self, s: &[u8]) {
         let dest = &mut self.data.0[self.len..self.len + s.len()];
         for (i, &b) in s.iter().enumerate() {
             dest[i] = b.cast_signed();
@@ -26,7 +25,7 @@ impl StackBuf {
         self.len += s.len();
     }
 
-    fn push_signed(&mut self, s: &[i8]) {
+    pub fn push_signed(&mut self, s: &[i8]) {
         let dest = &mut self.data.0[self.len..self.len + s.len()];
         for (i, &b) in s.iter().enumerate() {
             dest[i] = b;
@@ -35,27 +34,8 @@ impl StackBuf {
     }
 
     /// Get the filled part of the buffer as `&[i8]`.
-    fn as_slice(&self) -> &[i8] {
+    pub fn as_slice(&self) -> &[i8] {
         &self.data.0[..self.len]
-    }
-}
-
-pub fn get_env(key: &str) -> Option<&'static str> {
-    let key_bytes = key.as_bytes();
-    assert!(key_bytes.len() < ENV_KEY_SIZE);
-    let mut buf = [0i8; ENV_KEY_SIZE];
-    // Convert each byte safely
-    for (i, &b) in key_bytes.iter().enumerate() {
-        buf[i] = b.cast_signed();
-    }
-    buf[key_bytes.len()] = 0; // null terminator
-
-    let value_ptr = unsafe { libc::getenv(buf.as_ptr()) };
-    if value_ptr.is_null() {
-        None
-    } else {
-        let cstr = unsafe { CStr::from_ptr(value_ptr) };
-        cstr.to_str().ok()
     }
 }
 
@@ -81,32 +61,74 @@ impl Instance {
         stream.write_all(content).unwrap();
     }
 
-    fn get_hypr_prefix() -> StackBuf {
-        let mut buf = StackBuf::new();
-        if let Some(xdg) = get_env("XDG_RUNTIME_DIR") {
-            buf.push(xdg.as_bytes());
-        } else {
-            let uid = get_env("UID").expect("Could not find XDG_RUNTIME_DIR or UID");
-            buf.push(b"/run/user/");
-            buf.push(uid.as_bytes());
+    /// Retrieves an environment variable's value from the given `envp` array.
+    ///
+    /// # Safety
+    /// `envp` must be a valid pointer to a null‑terminated array of null‑terminated
+    /// C strings. Each string must be in the form `"KEY=value"`.
+    ///
+    /// # Panics
+    /// - If `key` is not found in the environment.
+    /// - If any environment value contains invalid UTF‑8 (use `from_utf8_unchecked`
+    ///   to avoid this check if you know the values are UTF‑8).
+    #[must_use]
+    unsafe fn get_env(envp: *const *const c_char, key: &'static str) -> Option<&'static str> {
+        let key_bytes = key.as_bytes();
+        let mut i = 0;
+
+        loop {
+            let entry_ptr = unsafe { *envp.add(i) };
+            if entry_ptr.is_null() {
+                break;
+            }
+
+            let cstr = unsafe { CStr::from_ptr(entry_ptr) };
+            let bytes = cstr.to_bytes();
+
+            // Find the first '=' separator
+            if let Some(eq_pos) = bytes.iter().position(|&b| b == b'=') {
+                let (key_slice, value_slice) = bytes.split_at(eq_pos);
+                // key_slice does not include '=', value_slice starts after '='
+                if key_slice == key_bytes {
+                    // The value part starts after the '='
+                    let value_bytes = &value_slice[1..];
+                    // Convert to &str (panics if not valid UTF‑8)
+                    return Some(
+                        str::from_utf8(value_bytes)
+                            .expect("environment variable value is not valid UTF-8"),
+                    );
+                }
+            }
+            i += 1;
         }
+
+        None
+    }
+
+    fn get_env_name(envp: *const *const c_char) -> &'static str {
+        unsafe { Self::get_env(envp, "HYPRLAND_INSTANCE_SIGNATURE") }
+            .expect("Could not get socket path! (Is Hyprland running??)")
+    }
+
+    fn get_hypr_prefix(envp: *const *const c_char) -> StackBuf {
+        let mut buf = StackBuf::new();
+        buf.push(unsafe {
+            Self::get_env(envp, "XDG_RUNTIME_DIR")
+                .expect("Could not find $XDG_RUNTIME_DIR")
+                .as_bytes()
+        });
         buf.push(b"/hypr");
         buf
     }
 
-    fn get_env_name() -> &'static str {
-        get_env("HYPRLAND_INSTANCE_SIGNATURE")
-            .expect("Could not get socket path! (Is Hyprland running??)")
-    }
-
-    pub fn new() -> Self {
-        let mut prefix = Self::get_hypr_prefix();
+    pub fn new(envp: *const *const c_char) -> Self {
+        let mut prefix = Self::get_hypr_prefix(envp);
         prefix.push(b"/");
-        prefix.push(Self::get_env_name().as_bytes());
+        prefix.push(Self::get_env_name(envp).as_bytes());
         Self::from_base_socket_path_bytes(prefix.as_slice())
     }
 
-    fn from_base_socket_path_bytes(path: &[i8]) -> Self {
+    pub fn from_base_socket_path_bytes(path: &[i8]) -> Self {
         let mut s1 = StackBuf::new();
         let mut s2 = StackBuf::new();
         s1.push(b"/.socket.sock");
