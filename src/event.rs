@@ -16,7 +16,8 @@ impl<F: Fn(ActiveWindowChangedEvent) + 'static> ActiveWindowChangedEventListener
         let mut buffered = BufStream::new(stream);
 
         while let Some(line_bytes) = buffered.read_line() {
-            let line = core::str::from_utf8(line_bytes).unwrap();
+            let line = core::str::from_utf8(line_bytes)
+                .expect("activewindow event payload is not valid UTF-8");
             if let Some(stripped) = line.strip_prefix("activewindow>>")
                 && let Some((class, title)) = stripped.split_once(',')
             {

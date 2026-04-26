@@ -46,6 +46,6 @@ impl UnixStream {
 
 impl Drop for UnixStream {
     fn drop(&mut self) {
-        close(self.fd).unwrap();
+        close(self.fd).expect("failed to close the Unix socket file descriptor");
     }
 }

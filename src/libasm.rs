@@ -184,7 +184,7 @@ fn write(fd: c_int, buf: *const c_void, count: c_size_t) -> Result<c_size_t, c_i
     let ret = unsafe { syscall::write(fd, buf, count) };
 
     if ret < 0 {
-        Err(c_int::try_from(ret).unwrap())
+        Err(c_int::try_from(ret).expect("write syscall returned an error code outside c_int range"))
     } else {
         Ok(ret.cast_unsigned())
     }
@@ -199,13 +199,13 @@ pub fn write_signed(fd: c_int, buf: &[i8]) -> Result<c_size_t, c_int> {
 }
 
 pub fn print(msg: &str) {
-    write_str(STDOUT_FILENO, msg).expect("todo");
+    write_str(STDOUT_FILENO, msg).expect("failed to write the panic message to stdout");
 }
 
 pub fn read(fd: c_int, buf: &mut [c_uchar]) -> Result<c_size_t, c_int> {
     let ret = unsafe { syscall::read(fd, buf.as_mut_ptr().cast::<c_void>(), buf.len()) };
     if ret < 0 {
-        Err(c_int::try_from(ret).unwrap())
+        Err(c_int::try_from(ret).expect("read syscall returned an error code outside c_int range"))
     } else {
         Ok(ret.cast_unsigned())
     }
@@ -214,8 +214,8 @@ pub fn read(fd: c_int, buf: &mut [c_uchar]) -> Result<c_size_t, c_int> {
 fn connect(fd: c_int, addr: &sockaddr_un, path_len: c_size_t) -> Result<c_int, c_int> {
     let addr_ptr = core::ptr::from_ref::<sockaddr_un>(addr).cast::<sockaddr>();
 
-    let addr_len =
-        socklen_t::try_from(core::mem::offset_of!(sockaddr_un, sun_path) + path_len + 1).unwrap();
+    let addr_len = socklen_t::try_from(core::mem::offset_of!(sockaddr_un, sun_path) + path_len + 1)
+        .expect("sockaddr_un length does not fit in socklen_t");
 
     let ret = unsafe { syscall::connect(fd, addr_ptr, addr_len) };
 

@@ -42,7 +42,11 @@ impl BufStream {
             }
 
             let chunk = &mut self.buffer[self.write_pos..];
-            match self.stream.read(chunk).unwrap() {
+            match self
+                .stream
+                .read(chunk)
+                .expect("failed to read from the Hyprland event socket")
+            {
                 0 => return None,
                 n => self.write_pos += n,
             }

@@ -13,8 +13,17 @@ impl<const N: usize> Buf<N> {
         }
     }
 
+    pub fn try_push(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        if self.len + bytes.len() > N {
+            return Err(());
+        }
+        self.push(bytes);
+        Ok(())
+    }
+
     pub fn push(&mut self, bytes: &[u8]) {
         let end = self.len + bytes.len();
+        assert!(end <= N, "Buf::push overflowed the fixed-capacity buffer");
         self.data[self.len..end].copy_from_slice(bytes);
         self.len = end;
     }

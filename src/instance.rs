@@ -14,15 +14,23 @@ pub struct Instance {
 impl Instance {
     pub fn set(&self, key: &str, value: &str) {
         let mut buf = Buf::<SUN_PATH_SIZE>::new();
-        buf.push(b"keyword ");
-        buf.push(key.as_bytes());
-        buf.push(b" ");
-        buf.push(value.as_bytes());
+        buf.try_push(b"keyword ")
+            .expect("bind command is too long for the Hyprland command socket path buffer");
+        buf.try_push(key.as_bytes())
+            .expect("bind command key is too long for the Hyprland command socket path buffer");
+        buf.try_push(b" ")
+            .expect("bind command is too long for the Hyprland command socket path buffer");
+        buf.try_push(value.as_bytes()).expect(
+            "bind command payload is too long for the Hyprland command socket path buffer",
+        );
         self.write_to_socket(buf.as_signed_slice());
     }
 
     fn write_to_socket(&self, content: &[i8]) {
-        UnixStream::connect(self.stream).unwrap().write_all(content).unwrap();
+        UnixStream::connect(self.stream)
+            .expect("failed to connect to the Hyprland command socket")
+            .write_all(content)
+            .expect("failed to write the bind command to the Hyprland command socket");
     }
 
     unsafe fn get_env(envp: *const *const c_char, key: &'static str) -> Option<&'static str> {
@@ -61,19 +69,25 @@ impl Instance {
 
     fn get_hypr_prefix(envp: *const *const c_char) -> Buf<SUN_PATH_SIZE> {
         let mut buf = Buf::<SUN_PATH_SIZE>::new();
-        buf.push(unsafe {
+        buf.try_push(unsafe {
             Self::get_env(envp, "XDG_RUNTIME_DIR")
                 .expect("Could not find $XDG_RUNTIME_DIR")
                 .as_bytes()
-        });
-        buf.push(b"/hypr");
+        })
+        .expect("XDG_RUNTIME_DIR is too long to build the Hyprland socket path");
+        buf.try_push(b"/hypr")
+            .expect("XDG_RUNTIME_DIR is too long to build the Hyprland socket path");
         buf
     }
 
     pub fn new(envp: *const *const c_char) -> Self {
         let mut prefix = Self::get_hypr_prefix(envp);
-        prefix.push(b"/");
-        prefix.push(Self::get_env_name(envp).as_bytes());
+        prefix
+            .try_push(b"/")
+            .expect("Hyprland socket path is too long for sockaddr_un");
+        prefix
+            .try_push(Self::get_env_name(envp).as_bytes())
+            .expect("Hyprland socket path is too long for sockaddr_un");
         Self::from_base_socket_path_bytes(prefix.as_signed_slice())
     }
 
@@ -86,10 +100,18 @@ impl Instance {
 
         let mut stream_suffix = Buf::<SUN_PATH_SIZE>::new();
         stream_suffix.push(b"/.socket.sock");
+        assert!(
+            len + stream_suffix.len <= SUN_PATH_SIZE,
+            "Hyprland command socket path is too long for sockaddr_un"
+        );
         stream.0[len..len + stream_suffix.len].copy_from_slice(stream_suffix.as_signed_slice());
 
         let mut event_suffix = Buf::<SUN_PATH_SIZE>::new();
         event_suffix.push(b"/.socket2.sock");
+        assert!(
+            len + event_suffix.len <= SUN_PATH_SIZE,
+            "Hyprland event socket path is too long for sockaddr_un"
+        );
         event_socket_path.0[len..len + event_suffix.len].copy_from_slice(event_suffix.as_signed_slice());
 
         Self {
@@ -99,6 +121,7 @@ impl Instance {
     }
 
     pub fn get_event_stream(&self) -> UnixStream {
-        UnixStream::connect(self.event_socket_path).unwrap()
+        UnixStream::connect(self.event_socket_path)
+            .expect("failed to connect to the Hyprland event socket")
     }
 }
